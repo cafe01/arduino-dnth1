@@ -151,8 +151,8 @@ void setup() {
     pinMode(DEHUMIDIFIER, OUTPUT);
     pinMode(HUMIDIFIER, OUTPUT);
     digitalWrite(ARCOND, TURN_OFF);
-    digitalWrite(ARCOND, TURN_OFF);
-    digitalWrite(ARCOND, TURN_OFF);
+    digitalWrite(DEHUMIDIFIER, TURN_OFF);
+    digitalWrite(HUMIDIFIER, TURN_OFF);
 }
 
 void loop() {
