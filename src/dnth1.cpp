@@ -10,39 +10,46 @@
 #include <DHT_U.h>
 
 // pins and devices
-#define RELAY1      6
-#define RELAY2      5
-#define RELAY3      4
-#define RELAY4      3
-#define ERROR_LED   13
+#define RELAY1      2
+#define RELAY2      4
+// #define RELAY3      4
+// #define RELAY4      3
+#define RED_LED   3
+#define GREEN_LED   5
+#define BLUE_LED   6
 #define LDR_LED     A0
 #define DHTPIN      7
 
 // params
 #define IDEAL_TEMP_DAY    27.0
 #define IDEAL_TEMP_NIGHT  22.0
-#define IDEAL_HUMI        63.0
+#define IDEAL_HUMI        57.0
 #define MAX_READ_ERRORS   5
 
 
 #define ARCOND       RELAY1
-#define DEHUMIDIFIER RELAY3
-#define HUMIDIFIER   RELAY4
+#define DEHUMIDIFIER RELAY2
+// #define HUMIDIFIER   RELAY4
 #define TURN_ON     HIGH
 #define TURN_OFF    LOW
+
+struct device_state {
+    bool arcond;
+    bool dehumidifier;
+} state = {false, false};
 
 // device handles
 DHT_Unified dht(DHTPIN, DHT22);
 int readErrors = 0;
 
+
 void blink_error() {
 
     Serial.print("Error!\n");
     for (int i = 0; i < 3; i++) {
-        digitalWrite(ERROR_LED, HIGH);
-        delay(50);
-        digitalWrite(ERROR_LED, LOW);
-        delay(50);
+        digitalWrite(RED_LED, HIGH);
+        delay(1000);
+        digitalWrite(RED_LED, LOW);
     }
 }
 
@@ -50,6 +57,37 @@ bool is_daytime() {
     return analogRead(LDR_LED) > 100;
 }
 
+
+void turn_ac_on () {
+
+    if (state.arcond) return;
+
+    Serial.print("Turning AC: ON!\n");
+    digitalWrite(ARCOND, TURN_ON);
+    state.arcond = true;
+}
+
+void turn_ac_off () {
+    if (!state.arcond) return;
+    digitalWrite(ARCOND, TURN_OFF);
+    Serial.print("Turning AC: OFF!\n");
+    state.arcond = false;
+}
+
+void turn_dehumidifier_on () {
+    if (state.dehumidifier)  return;
+
+    digitalWrite(ARCOND, TURN_ON);
+    Serial.print("Turning DEHUMIDIFIER: ON!\n");
+    state.dehumidifier = true;
+}
+
+void turn_dehumidifier_off () {
+    if (!state.dehumidifier) return;
+    digitalWrite(ARCOND, TURN_OFF);
+    Serial.print("Turning DEHUMIDIFIER: OFF!\n");
+    state.dehumidifier = false;
+}
 
 
 void controlTemperature() {
@@ -64,7 +102,7 @@ void controlTemperature() {
 
         // if the error persists (broken sensor), keep de AC on!
         if (readErrors > MAX_READ_ERRORS) {
-            digitalWrite(ARCOND, TURN_ON);
+            turn_ac_on();
         }
 
         return;
@@ -82,14 +120,12 @@ void controlTemperature() {
     Serial.print("º)\n");
 
 
-    if (temp > (IDEAL_TEMP + 1) && digitalRead(ARCOND) == TURN_OFF) {
-        Serial.print("Turning AC: ON\n");
-        digitalWrite(ARCOND, TURN_ON);
+    if (temp > (IDEAL_TEMP + 1)) {
+        turn_ac_on();
     }
 
-    if (temp < (IDEAL_TEMP - 1) && digitalRead(ARCOND) == TURN_ON) {
-        Serial.print("Turning AC: OFF\n");
-        digitalWrite(ARCOND, TURN_OFF);
+    if (temp < (IDEAL_TEMP - 1)) {
+        turn_ac_off();
     }
 }
 
@@ -115,32 +151,53 @@ void controlHumidity() {
     Serial.print("%)\n");
 
     // DEHUMIDIFIER
-    if (humidity > (IDEAL_HUMI + 1) && digitalRead(DEHUMIDIFIER) == TURN_OFF) {
+    if (humidity > (IDEAL_HUMI + 1) && digitalRead(DEHUMIDIFIER) == TURN_OFF)
+        turn_dehumidifier_on();
 
-        Serial.print("Turning DEHUMIDIFIER: ON\n");
-        digitalWrite(DEHUMIDIFIER, TURN_ON);
-    }
-
-    if (humidity < (IDEAL_HUMI - 1) && digitalRead(DEHUMIDIFIER) == TURN_ON) {
-
-        Serial.print("Turning DEHUMIDIFIER: OFF\n");
-        digitalWrite(DEHUMIDIFIER, TURN_OFF);
-    }
+    if (humidity < (IDEAL_HUMI - 1) && digitalRead(DEHUMIDIFIER) == TURN_ON)
+        turn_dehumidifier_off();
 
     // HUMIDIFIER
-    if (humidity < (IDEAL_HUMI - 1) && digitalRead(HUMIDIFIER) == TURN_OFF) {
-
-        Serial.print("Turning HUMIDIFIER: ON\n");
-        digitalWrite(HUMIDIFIER, TURN_ON);
-    }
-
-    if (humidity > (IDEAL_HUMI + 1) && digitalRead(HUMIDIFIER) == TURN_ON) {
-
-        Serial.print("Turning HUMIDIFIER: OFF\n");
-        digitalWrite(HUMIDIFIER, TURN_OFF);
-    }
+    // if (humidity < (IDEAL_HUMI - 1) && digitalRead(HUMIDIFIER) == TURN_OFF) {
+    //
+    //     Serial.print("Turning HUMIDIFIER: ON\n");
+    //     digitalWrite(HUMIDIFIER, TURN_ON);
+    // }
+    //
+    // if (humidity > (IDEAL_HUMI + 1) && digitalRead(HUMIDIFIER) == TURN_ON) {
+    //
+    //     Serial.print("Turning HUMIDIFIER: OFF\n");
+    //     digitalWrite(HUMIDIFIER, TURN_OFF);
+    // }
 }
 
+
+void displayInfo() {
+
+    if (is_daytime()) {
+        Serial.print("DAY");
+    } else {
+        Serial.print("NIGHT");
+    }
+
+    if (state.dehumidifier) {
+        digitalWrite(RED_LED, HIGH);
+        digitalWrite(BLUE_LED, HIGH);
+        delay(500);
+        digitalWrite(RED_LED, LOW);
+        digitalWrite(BLUE_LED, LOW);
+        Serial.print(" | DEHUMIDIFIER: ON");
+    }
+
+    if (state.arcond) {
+        digitalWrite(GREEN_LED, HIGH);
+        delay(500);
+        digitalWrite(GREEN_LED, LOW);
+        Serial.print("| AC: ON");
+    }
+
+    Serial.print("\n");
+}
 
 void setup() {
 
@@ -149,22 +206,27 @@ void setup() {
 
     pinMode(ARCOND, OUTPUT);
     pinMode(DEHUMIDIFIER, OUTPUT);
-    pinMode(HUMIDIFIER, OUTPUT);
+    // pinMode(HUMIDIFIER, OUTPUT);
     digitalWrite(ARCOND, TURN_OFF);
     digitalWrite(DEHUMIDIFIER, TURN_OFF);
-    digitalWrite(HUMIDIFIER, TURN_OFF);
+    // digitalWrite(HUMIDIFIER, TURN_OFF);
+
+    Serial.print("Started!\n");
 }
 
 void loop() {
 
+    delay(3000);
 
     // Temperature
     controlTemperature();
-    delay(500);
+    // delay(500);
 
     // Humidity
     controlHumidity();
 
-    delay(2000);
     Serial.print("\n");
+
+    // show stats
+    displayInfo();
 }
