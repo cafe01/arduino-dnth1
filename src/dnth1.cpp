@@ -8,6 +8,8 @@
 
 */
 #include <DHT_U.h>
+#include <SPI.h>
+#include <SD.h>
 
 // pins and devices
 #define RELAY1      2
@@ -21,7 +23,8 @@
 #define DHTPIN      7
 
 // params
-#define IDEAL_TEMP_DAY    27.0
+#define CONFIG_FILE       "dnth.conf"
+#define IDEAL_TEMP_DAY    32.0
 #define IDEAL_TEMP_NIGHT  22.0
 #define IDEAL_HUMI        57.0
 #define MAX_READ_ERRORS   5
@@ -36,11 +39,16 @@
 struct device_state {
     bool arcond;
     bool dehumidifier;
-} state = {false, false};
+    float temperature;
+    float humidity;
+} state = {false, false, 0, 0};
 
 // device handles
 DHT_Unified dht(DHTPIN, DHT22);
 int readErrors = 0;
+
+unsigned long prevMillis = 0;
+unsigned long interval = 3000;
 
 
 void blink_error() {
@@ -108,23 +116,23 @@ void controlTemperature() {
         return;
     }
 
-    float temp   = event.temperature;
+    state.temperature = event.temperature;
     float IDEAL_TEMP = is_daytime() ? IDEAL_TEMP_DAY : IDEAL_TEMP_NIGHT;
-    float offset = temp - IDEAL_TEMP;
+    // float offset = state.temperature - IDEAL_TEMP;
+    //
+    // Serial.print("T: ");
+    // Serial.print(state.temperature);
+    // Serial.print("º (");
+    // if (offset > 0) Serial.print('+');
+    // Serial.print(offset);
+    // Serial.print("º)\n");
 
-    Serial.print("T: ");
-    Serial.print(temp);
-    Serial.print("º (");
-    if (offset > 0) Serial.print('+');
-    Serial.print(offset);
-    Serial.print("º)\n");
 
-
-    if (temp > (IDEAL_TEMP + 1)) {
+    if (state.temperature > (IDEAL_TEMP + 1)) {
         turn_ac_on();
     }
 
-    if (temp < (IDEAL_TEMP - 1)) {
+    if (state.temperature < (IDEAL_TEMP - 1)) {
         turn_ac_off();
     }
 }
@@ -140,21 +148,21 @@ void controlHumidity() {
         return;
     }
 
-    float humidity = event.relative_humidity;
-    float offset = humidity - IDEAL_HUMI;
-
-    Serial.print("H: ");
-    Serial.print(humidity);
-    Serial.print("% (");
-    if (offset > 0) Serial.print('+');
-    Serial.print(offset);
-    Serial.print("%)\n");
+    state.humidity = event.relative_humidity;
+    // float offset = humidity - IDEAL_HUMI;
+    //
+    // Serial.print("H: ");
+    // Serial.print(humidity);
+    // Serial.print("% (");
+    // if (offset > 0) Serial.print('+');
+    // Serial.print(offset);
+    // Serial.print("%)\n");
 
     // DEHUMIDIFIER
-    if (humidity > (IDEAL_HUMI + 1) && digitalRead(DEHUMIDIFIER) == TURN_OFF)
+    if (state.humidity  > (IDEAL_HUMI + 1) && digitalRead(DEHUMIDIFIER) == TURN_OFF)
         turn_dehumidifier_on();
 
-    if (humidity < (IDEAL_HUMI - 1) && digitalRead(DEHUMIDIFIER) == TURN_ON)
+    if (state.humidity  < (IDEAL_HUMI - 1) && digitalRead(DEHUMIDIFIER) == TURN_ON)
         turn_dehumidifier_off();
 
     // HUMIDIFIER
@@ -174,35 +182,55 @@ void controlHumidity() {
 
 void displayInfo() {
 
-    if (is_daytime()) {
-        Serial.print("DAY");
-    } else {
-        Serial.print("NIGHT");
-    }
+    bool isDaytime = is_daytime();
+    String data = isDaytime ? "DAY" : "NIGHT";
+    data = data + ":" + (isDaytime ? IDEAL_TEMP_DAY : IDEAL_TEMP_NIGHT);
+    data = data + ":" + IDEAL_HUMI;
+    data = data + ":" + state.temperature;
+    data = data + ":" + state.humidity;
+    data = data + ":" + (state.arcond ? "1" : "0");
+    data = data + ":" + (state.dehumidifier ? "1" : "0");
+
 
     if (state.dehumidifier) {
         digitalWrite(RED_LED, HIGH);
         digitalWrite(BLUE_LED, HIGH);
-        delay(500);
+        delay(250);
         digitalWrite(RED_LED, LOW);
         digitalWrite(BLUE_LED, LOW);
-        Serial.print(" | DEHUMIDIFIER: ON");
     }
 
     if (state.arcond) {
         digitalWrite(GREEN_LED, HIGH);
-        delay(500);
+        delay(250);
         digitalWrite(GREEN_LED, LOW);
-        Serial.print("| AC: ON");
     }
 
-    Serial.print("\n");
+    Serial.print("DATA:" + data + "\n");
+}
+
+void loadConfig() {
+
+    Serial.print("Loading saved config...\n");
+    
+    if (SD.exists(CONFIG_FILE)) {
+
+        File file = SD.open(CONFIG_FILE);
+        if (!file) return;
+
+        String data = file.readString();
+        Serial.print("Loaded config: " + data + "\n");
+    }
+    else {
+        Serial.print("Config file not found. (" + (String) CONFIG_FILE + ")\n");
+    }
 }
 
 void setup() {
 
-    Serial.begin(9600);
+    Serial.begin(115200);
     dht.begin();
+    SD.begin(10);
 
     pinMode(ARCOND, OUTPUT);
     pinMode(DEHUMIDIFIER, OUTPUT);
@@ -211,12 +239,18 @@ void setup() {
     digitalWrite(DEHUMIDIFIER, TURN_OFF);
     // digitalWrite(HUMIDIFIER, TURN_OFF);
 
+    loadConfig();
+
     Serial.print("Started!\n");
 }
 
 void loop() {
 
-    delay(3000);
+    unsigned long currentMillis  = millis();
+    if (currentMillis - prevMillis < interval)
+        return;
+
+    prevMillis = currentMillis;
 
     // Temperature
     controlTemperature();
@@ -224,8 +258,6 @@ void loop() {
 
     // Humidity
     controlHumidity();
-
-    Serial.print("\n");
 
     // show stats
     displayInfo();
